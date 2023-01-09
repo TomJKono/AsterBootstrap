@@ -1,0 +1,17 @@
+Package: AsterBootstrap
+Title: User-friendly Parametric Bootstrap Estimates from Aster Models
+Version: 0.0.0.9000
+Authors@R: 
+    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"),
+           comment = c(ORCID = "YOUR-ORCID-ID"))
+Description: This package contains wrapper functions that were developed with
+    the goal of improving the usability and accessiblity of Aster models for
+    estimation of total lifetime fitness. It also includes functions for using
+    parallel computing resources to perform a parametric bootstrap to assess
+    the variability of the point estimates for fitness and genetic variance
+    obtained from Aster models.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.1
+Imports: aster, dagitty, stats
