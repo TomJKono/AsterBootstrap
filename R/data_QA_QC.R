@@ -60,12 +60,16 @@ read_aster_data <- function(filename, initial, sep=",") {
 #' @param fams
 #' A vector of the exponential family distributions that should be used for the
 #' edges of the graphical model. See details.
+#' @param fitness
+#' The name of the variable to use as the fitness surrogate. See details.
 #' @param quiet
 #' A boolean (TRUE/FALSE) for whether summary information about the graphical
 #' model should be printed. Default TRUE.
 #' @return
 #' A list with three elements:
 #'   $initial: the name of the "Initial" node of the graphical model
+#' 
+#'   $fit: the name of the fitness surrogate node of the graphical model.
 #' 
 #'   $vars: the names of the nodes of the graphical model
 #' 
@@ -81,7 +85,9 @@ read_aster_data <- function(filename, initial, sep=",") {
 #' argument should be a vector of the names of the predecessor node for each
 #' node given in `vars`, in the same order. The `fams` argument shoud give the
 #' exponential family distribution that will be used to model the
-#' predecessor->successor edges in the graphical model.
+#' predecessor->successor edges in the graphical model. The `fitness_var`
+#' argument should be the name of the node that will be used as the surrogate
+#' of fitness.
 #' 
 #' For example, consider a data.frame that has the following columns:
 #' 
@@ -106,11 +112,13 @@ read_aster_data <- function(filename, initial, sep=",") {
 #' model_spec <- build_graphical_model(data, initial="Initial",
 #'                                     vars=c("Germinated", "Fruits", "Seeds"),
 #'                                     pred=c("Initial", "Germinated", "Fruits"),
-#'                                     fams=c(fam_bernoulli, fam_0poi, fam_poi))
+#'                                     fams=c(fam_bernoulli, fam_0poi, fam_poi),
+#'                                     fitness_var="Seeds")
 #' 
 #' This function will throw errors if the names of the nodes or the designation
 #' of predecessor nodes are incompatible with a valid Aster graphical model.
-build_graphical_model <- function(dat, initial, vars, pred, fams, quiet=TRUE) {
+build_graphical_model <- function(dat, initial, vars, pred, fams, fitness_var,
+    quiet=TRUE) {
     # First, check that vars, pred, and fams are all the same length and
     # are greater than 2 (Aster models need at least two nodes)
     arg_lens <- unique(c(length(vars), length(pred), length(fams)))
@@ -130,6 +138,15 @@ build_graphical_model <- function(dat, initial, vars, pred, fams, quiet=TRUE) {
             initial,
             "' not found in data file! Data file contains: ",
             paste(colnames(dat), sep=", ", collapse=", "),
+            sep=""),
+        call.=TRUE)
+    }
+    # Check that the fitness variable exists as a column in the data
+    if(!fitness_var %in% colnames(dat)) {
+        stop(paste(
+            "Fitness variable '",
+            fitness_var,
+            "' not found in data column names!",
             sep=""),
         call.=TRUE)
     }
@@ -181,6 +198,7 @@ build_graphical_model <- function(dat, initial, vars, pred, fams, quiet=TRUE) {
     # Return a list with the model specifications
     ret <- list(
         initial=initial,
+        fit=fitness_var,
         vars=vars,
         pred=pred_idx,
         fam=fams)
@@ -278,12 +296,12 @@ check_data_validity <- function(dat, model_spec) {
 
 #' Reshape "wide" data to "long" data for Aster
 #' 
-make_long_data <- function(dat, model_spec, fitness_var) {
+make_long_data <- function(dat, model_spec) {
     # Check that the fitness variable exists as a column in the data
-    if(!fitness_var %in% colnames(dat)) {
+    if(!model_spec$fit %in% colnames(dat)) {
         stop(paste(
             "Fitness variable '",
-            fitness_var,
+            model_spec$fit,
             "' not found in data column names!",
             sep=""),
         call.=TRUE)
@@ -297,6 +315,6 @@ make_long_data <- function(dat, model_spec, fitness_var) {
         times=as.factor(model_spec$vars),
         v.names="resp")
     # And add the fitness surrogate variable into the long data
-    long_data$fit <- as.numeric(long_data$varb == fitness_var)
+    long_data$fit <- as.numeric(long_data$varb == model_spec$fit)
     return(long_data)
 }

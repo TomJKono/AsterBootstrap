@@ -61,7 +61,7 @@ fixed_effects_aster <- function(dat, model_spec, blocking=NULL, formula=NULL,
 
 #' Fit a random-effects Aster model to a dataset
 random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
-    formula=NULL, quiet=TRUE) {
+    formula=NULL, effects=NULL, sigma=NULL, quiet=TRUE) {
     # If there are blocking factors specified, then coerce them to factor type
     if(!is.null(blocking)) {
         for(bf in blocking) {
@@ -168,9 +168,15 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
         varvar=varb,
         idvar=id,
         root=dat[[model_spec$initial]],
-        data=dat)
+        data=dat,
+        effects=effects,
+        sigma=sigma)
     return(rout)
 }
+
+#' Calculate VaW from a random-effects Aster model.
+calculate_VaW <- function(reaster_obj) {
+    }
 
 # TODO:
 #   See TR658 for Pearson residuals. We will likely want to include some
