@@ -76,7 +76,19 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
             dat[[bf]] <- as.factor(dat[[bf]])
         }
     }
-
+    # Check that both 'effects' and 'sigma' are either both defined (not NULL)
+    # or are both NULL
+    if(is.null(effects) & is.null(sigma)) {
+        def_sigma <- TRUE
+    } else {
+        def_sigma <- FALSE
+    }
+    if((!is.null(effects) & is.null(sigma)) ||
+        (is.null(effects) & !is.null(sigma))) {
+        stop(
+            "Both 'effects' and 'sigma' must be specified.",
+            call.=TRUE)
+    }
     # Check the random effects specification. If it is NULL (none specified),
     # then we will throw an error. Otherwise, it should be a list of random
     # effects to add.
@@ -159,23 +171,42 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
         cat("\n", file=stderr())
     }
 
-    # Then, fit the model and return the model obj
-    rout <- aster::reaster(
-        fixed=mod,
-        random=rand_effs,
-        pred=model_spec$pred,
-        fam=model_spec$fam,
-        varvar=varb,
-        idvar=id,
-        root=dat[[model_spec$initial]],
-        data=dat,
-        effects=effects,
-        sigma=sigma)
+    # Then, fit the model and return the model object
+    #   This is a bit of an ugly hack, but we have to write the input data into
+    #   the global environment because the reaster() function tries to access
+    #   the data from the global environment.
+    .GlobalEnv$reaster_input_data__ <- dat
+    if(def_sigma) {
+        rout <- aster::reaster(
+            fixed=mod,
+            random=rand_effs,
+            pred=model_spec$pred,
+            fam=model_spec$fam,
+            varvar=varb,
+            idvar=id,
+            root=reaster_input_data__[[model_spec$initial]],
+            data=reaster_input_data__)
+    } else {
+        rout <- aster::reaster(
+            fixed=mod,
+            random=rand_effs,
+            pred=model_spec$pred,
+            fam=model_spec$fam,
+            varvar=varb,
+            idvar=id,
+            root=reaster_input_data__[[model_spec$initial]],
+            data=reaster_input_data__,
+            effects=effects,
+            sigma=sigma)
+    }
     return(rout)
 }
 
 #' Calculate VaW from a random-effects Aster model.
+#'  QUESTION: How to handle the various ways to calculate VaW? E.g.,
+#' # sire effects, dam effects, siblings?
 calculate_VaW <- function(reaster_obj) {
+
     }
 
 # TODO:

@@ -2,7 +2,7 @@
 
 #' Visualize an Aster graphical model
 #' 
-#' @param mod_spec
+#' @param model_spec
 #' The model specification from the build_graphical_model() function.
 #' @param linear.layout
 #' Boolean flag for whether graphical model should be plotted in a straight
@@ -27,11 +27,11 @@
 #'                                     fams=c(fam_bernoulli, fam_0poi, fam_poi))
 #' # Draw a plot to interactive R window
 #' dag_layout <- draw_graphical_model(model_spec)
-draw_graphical_model <- function(mod_spec, linear.layout=TRUE) {
+draw_graphical_model <- function(model_spec, linear.layout=TRUE) {
     # Get the nodes from the model specification
-    nodes <- mod_spec$vars
+    nodes <- model_spec$vars
     # Put them in order based on the predecessor->successor notation
-    nodes_ordered <- c(mod_spec$initial, nodes[mod_spec$pred+1])
+    nodes_ordered <- c(model_spec$initial, nodes[model_spec$pred+1])
     # Build the string-like specification of the DAG, for dagitty
     dag_nodes <- c('dag {')
     for(x in seq(2, length(nodes_ordered))) {

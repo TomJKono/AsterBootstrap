@@ -3,7 +3,7 @@
 
 #' Estimate bootstrpped additive genetic variance for fitness with parallel
 #' processing
-bootstrap_VaW_par <- function(mod_obj, mod_spec, long_dat, blocking, reff,
+bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
     n_iter, n_cores=1, forumula=NULL, quiet=TRUE) {
     # Check that the "parallel" and "doParallel" packages are available
     if(!(requireNamespace("parallel", quietly=TRUE)
@@ -11,8 +11,8 @@ bootstrap_VaW_par <- function(mod_obj, mod_spec, long_dat, blocking, reff,
     stop('"parallel" and "doParallel" are required for parallel bootstrap.',
         call.=TRUE)
     }
-    # Make sure that someone isn't asking for more cores than they have
-    # available.
+    # Print a warning if someone is asking for more cores than there are
+    # available on the system.
     tot_cores <- parallel::detectCores()
     if(n_cores > tot_cores) {
         warning(
@@ -20,7 +20,7 @@ bootstrap_VaW_par <- function(mod_obj, mod_spec, long_dat, blocking, reff,
                 "Requested more cores than R thinks you have on your ",
                 "workstation! R thinks you have ",
                 tot_cores,
-                " cores available.",
+                " cores available. This is not an error.",
                 sep=""),
             immediate.=TRUE)
     }
@@ -38,16 +38,15 @@ bootstrap_VaW_par <- function(mod_obj, mod_spec, long_dat, blocking, reff,
     n_cores <- as.integer(n_cores)
     # Make a variable that records which rows in the long data correspond to
     # the observations for the fitness variable
-    if(!mod_spec$fit %in% unique(long_dat$varb)) {
+    if(!model_spec$fit %in% unique(long_dat$varb)) {
         stop(paste(
             "Fitness variable ",
-            mod_spec$fit,
+            model_spec$fit,
             " does not exist in the long data! The long data has ",
             paste(unique(long_dat$varb), collapse=", "),
             sep=""),
         call.=TRUE)
     }
-    fit_long <- as.numeric(long_dat$varb == mod_spec$fit)
     # Try to get the 'alpha' and 'sigma' list elements from the model object.
     # If these do not exist, then we do not have a random-effects Aster model.
     elems <- c("alpha", "sigma", "random")
@@ -73,11 +72,8 @@ bootstrap_VaW_par <- function(mod_obj, mod_spec, long_dat, blocking, reff,
     # additive genetic variance for fitness. In essence, this will fit a new
     # model with resampled values for the random effects, then use that
     # model to estimate additive genetic variance.
-    single_boot <- function(boot_mod_obj, boot_dat, boot_mod_spec,
-        boot_blocking, boot_reff) {
-        # The boot_mod_obj, boot_dat, boot_mod_spec, boot_dat, boot_blocking,
-        # and boot_reff variables are passed through from the bootstrap_VaW
-        # function.
+    single_boot <- function(boot_mod_obj, boot_dat, boot_model_spec, boot_reff,
+        boot_blocking) {
         # Extract the original estimates of the 'alpha' and 'sigma' parameters
         # from the model object
         alpha_est <- boot_mod_obj$alpha
@@ -85,10 +81,10 @@ bootstrap_VaW_par <- function(mod_obj, mod_spec, long_dat, blocking, reff,
         # Make a model matrix from the fixed and random effects
         obj_f_eff <- boot_mod_obj$fixed
         obj_r_eff <- boot_mod_obj$random
-        modmat <- cbind(fixed, Reduce(cbind, random))
+        modmat <- cbind(obj_f_eff, Reduce(cbind, obj_r_eff))
         # Extract the number of observations for the random effects - this will
         # be used in fitting a new model for a bootstrap replicate
-        n_rand <- sapply(boot_mod_obj$random, ncol)
+        n_rand <- sapply(obj_r_eff, ncol)
         # Make up new values for the random effects by multiplying them by
         # a random [~N(0, 1)] value
         a_hat <- rep(sigma_est, times=n_rand)
@@ -107,8 +103,8 @@ bootstrap_VaW_par <- function(mod_obj, mod_spec, long_dat, blocking, reff,
         # Use raster() to generate new data from an Aster distribution
         y_star <- aster::raster(
             theta_star,
-            boot_mod_spec$pred,
-            boot_mod_spec$fam,
+            boot_model_spec$pred,
+            boot_model_spec$fam,
             boot_mod_obj$obj$root)
         y_star <- as.vector(y_star)
         # Use the blocking factors supplied to make a new model with the
@@ -122,16 +118,28 @@ bootstrap_VaW_par <- function(mod_obj, mod_spec, long_dat, blocking, reff,
         }
         # Fit a new model
         rout_boot <- random_effects_aster(
-            formula=mod,
-            dat=boot_dat,
-            mod_spec=boot_mod_spec,
+            boot_dat,
+            boot_model_spec,
             reff=boot_reff,
             effects=c(alpha_est, c_star),
-            sigma=sigma_est)
+            sigma=sigma_est,
+            formula=mod)
         # ADD HERE: call to function for VaW estimation
+        return(var(mod_r$b))
     }
-
-
-
-
+    # Apply this bootstrapping function across multiple cores now
+    boot_est <- foreach::foreach(
+        i=1:n_iter,
+        combine=c,
+        .multicombine=TRUE,
+        .inorder=FALSE,
+        .export=c("random_effects_aster")) %dopar% {
+            single_boot(
+                boot_mod_obj=mod_obj,
+                boot_dat=long_dat,
+                boot_model_spec=model_spec,
+                boot_reff=reff,
+                boot_blocking=blocking)
+        }
+    return(boot_est)
 }
