@@ -4,7 +4,7 @@
 #' Estimate bootstrpped additive genetic variance for fitness with parallel
 #' processing
 bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
-    n_iter, n_cores=1, forumula=NULL, quiet=TRUE) {
+    n_iter, VaW_fun, n_cores=1, forumula=NULL, quiet=TRUE) {
     # Check that the "parallel" and "doParallel" packages are available
     if(!(requireNamespace("parallel", quietly=TRUE)
        || requireNamespace("doParallel", quietly=TRUE))) {
@@ -62,7 +62,7 @@ bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
     # packages to distribute this across multiple local CPU cores. This
     # approach is not as efficient as mclapply(), but it is more portable for
     # those on Windows workstations.
-    clust <- parallel::makeCluster(n_cores)
+    clust <- parallel::makeCluster(n_cores, outfile="")
     doParallel::registerDoParallel(clust)
     # Stop the cluster on exit, regardless of success or error
     on.exit(parallel::stopCluster(clust))
@@ -73,7 +73,7 @@ bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
     # model with resampled values for the random effects, then use that
     # model to estimate additive genetic variance.
     single_boot <- function(boot_mod_obj, boot_dat, boot_model_spec, boot_reff,
-        boot_blocking) {
+        boot_blocking, vaw_function) {
         # Extract the original estimates of the 'alpha' and 'sigma' parameters
         # from the model object
         alpha_est <- boot_mod_obj$alpha
@@ -125,21 +125,24 @@ bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
             sigma=sigma_est,
             formula=mod)
         # ADD HERE: call to function for VaW estimation
-        return(var(mod_r$b))
+        vaw <- vaw_function(rout_boot, "Pat", "Father", boot_model_spec,
+            1, 1)
+        return(vaw)
     }
     # Apply this bootstrapping function across multiple cores now
     boot_est <- foreach::foreach(
         i=1:n_iter,
-        combine=c,
+        combine=rbind,
         .multicombine=TRUE,
-        .inorder=FALSE,
-        .export=c("random_effects_aster")) %dopar% {
+        .inorder=FALSE) %dopar% {
+            devtools::load_all("~/Dropbox/GitHub/RIS/AsterBootstrap/")
             single_boot(
                 boot_mod_obj=mod_obj,
                 boot_dat=long_dat,
                 boot_model_spec=model_spec,
                 boot_reff=reff,
-                boot_blocking=blocking)
+                boot_blocking=blocking,
+                vaw_function=VaW_fun)
         }
     return(boot_est)
 }

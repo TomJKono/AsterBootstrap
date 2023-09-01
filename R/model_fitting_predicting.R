@@ -202,11 +202,45 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
     return(rout)
 }
 
-#' Calculate VaW from a random-effects Aster model.
-#'  QUESTION: How to handle the various ways to calculate VaW? E.g.,
-#' # sire effects, dam effects, siblings?
-calculate_VaW <- function(reaster_obj) {
-
+#' Calculate VaW from a random-effects Aster model using a paternal half-sibling
+#' design.
+VaW_paternal_halfsib <- function(reaster_obj, sire_label, effect_label, 
+    model_spec, fixed_eff_idx, typical_ind_idx) {
+    # Extract information about the graphical model from the model specification
+    # object
+    n_nodes <- length(model_spec$vars)
+    fit_node <- which(model_spec$vars == model_spec$fit)
+    bhat<- reaster_obj$b # random effects
+    bhat.sire<- bhat[grep(sire_label, names(bhat))] # specifies Sire effects
+    hoom.star <- predict(reaster_obj$obj,
+                       newcoef=reaster_obj$alpha)
+    hoom.star<- matrix(hoom.star, ncol=n_nodes)
+    hoom.star<- hoom.star[ , fit_node]
+    # mapping function
+    map <- function(b) {
+        stopifnot(length(b) == 1)
+        stopifnot(is.finite(b))
+        alpha <- reaster_obj$alpha
+        alpha[fixed_eff_idx] <- alpha[fixed_eff_idx] + b 
+        # adding random effect to fixed effect
+        hoom.star <- predict(reaster_obj$obj, newcoef = alpha)
+        hoom.star<- matrix(hoom.star, ncol = n_nodes)
+        return(hoom.star[typical_ind_idx, fit_node]) # return value of final node for typical individual
+    }
+    map.vector <- Vectorize(map)
+    bhat.sire.mu<- map.vector(bhat.sire)  
+    hoom.star2<- predict(reaster_obj$obj,
+                       newcoef = reaster_obj$alpha,
+                       se.fit=TRUE, info.tol = 1e-13)
+    goom.star <- hoom.star2$gradient  
+    moom.star<- goom.star[,fixed_eff_idx]
+    moom.star<- matrix(moom.star, ncol=n_nodes)  
+    # calcualtion for Va(w) 
+    boot_Va<- 4 * moom.star[typical_ind_idx , fit_node]^2 * reaster_obj$nu[1] # final calcuation of VaW
+    soutstar <- summary(reaster_obj)
+    boot_SE<- 4 * moom.star[typical_ind_idx , fit_node]^2 * soutstar$nu[effect_label, "Std. Error"]
+    vaandse <- c(boot_Va,boot_SE)
+    return(vaandse)
     }
 
 # TODO:
