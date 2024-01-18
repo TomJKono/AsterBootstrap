@@ -65,6 +65,8 @@ single_bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, r_eff,
     # those on Windows workstations.
     clust <- parallel::makeCluster(n_cores, outfile="")
     doParallel::registerDoParallel(clust)
+    # Set the seed for the cluster
+    parallel::clusterSetRNGStream(clust, iseed=seed)
     # Tell the cluster to load the AsterBootstrap package
     parallel::clusterCall(
         clust,
@@ -182,7 +184,6 @@ single_bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, r_eff,
         combine=rbind,
         .multicombine=TRUE,
         .inorder=FALSE) %dopar% {
-            set.seed(seed + i)
             sb_est <- NULL
             while(is.null(sb_est)) {
                 try(
@@ -197,8 +198,6 @@ single_bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, r_eff,
                         boot_typical_ind=typical_ind,
                         boot_typical_fe_level=typical_fe_level)
                     )
-                rint <- runif(1, n_iter, n_iter+1e6)
-                set.seed(seed + rint)
             }
             return(sb_est)
         }
