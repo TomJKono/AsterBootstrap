@@ -3,8 +3,9 @@
 
 #' Estimate bootstrpped additive genetic variance for fitness with parallel
 #' processing
-bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
-    n_iter, VaW_fun, n_cores=1, forumula=NULL, quiet=TRUE) {
+single_bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, r_eff,
+    blocking, n_iter, VaW_fun, boot_effect, seed, typical_ind, typical_fe_level,
+    pkg_dir, n_cores=1, forumula=NULL, quiet=TRUE) {
     # Check that the "parallel" and "doParallel" packages are available
     if(!(requireNamespace("parallel", quietly=TRUE)
        || requireNamespace("doParallel", quietly=TRUE))) {
@@ -64,6 +65,14 @@ bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
     # those on Windows workstations.
     clust <- parallel::makeCluster(n_cores, outfile="")
     doParallel::registerDoParallel(clust)
+    # Tell the cluster to load the AsterBootstrap package
+    parallel::clusterCall(
+        clust,
+        function(pkg_dir) {
+            devtools::load_all(pkg_dir, quiet=TRUE)
+        },
+        pkg_dir=pkg_dir
+    )
     # Stop the cluster on exit, regardless of success or error
     on.exit(parallel::stopCluster(clust))
     # define a local %dopar%
@@ -73,23 +82,52 @@ bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
     # model with resampled values for the random effects, then use that
     # model to estimate additive genetic variance.
     single_boot <- function(boot_mod_obj, boot_dat, boot_model_spec, boot_reff,
-        boot_blocking, vaw_function) {
+        boot_blocking, vaw_function, boot_effect, boot_typical_ind,
+        boot_typical_fe_level) {
         # Extract the original estimates of the 'alpha' and 'sigma' parameters
-        # from the model object
+        # from the model object. 'alpha' are the MLE for the fixed effects, and
+        # 'sigma' are the square roots of the MLE of the variance components.
         alpha_est <- boot_mod_obj$alpha
         sigma_est <- boot_mod_obj$sigma
+        # Extract the penalized likelihood estimates for the random effects
+        b_hat <- boot_mod_obj$b
+        # Identify which random effects are the ones to replace for
+        # bootstrapping.
+        #   E.g., if we are bootstrapping the paternal random effect, first
+        #   find effects that have 'Pat' in the name. Then, "invert" the
+        #   matches because we will keep non-Pat effects as their original
+        #   estimated values and replace Pat effects with simulated ones
+        beff_idx <- !grepl(boot_effect, attributes(b_hat)$names)
         # Make a model matrix from the fixed and random effects
         obj_f_eff <- boot_mod_obj$fixed
         obj_r_eff <- boot_mod_obj$random
-        modmat <- cbind(obj_f_eff, Reduce(cbind, obj_r_eff))
-        # Extract the number of observations for the random effects - this will
-        # be used in fitting a new model for a bootstrap replicate
         n_rand <- sapply(obj_r_eff, ncol)
-        # Make up new values for the random effects by multiplying them by
-        # a random [~N(0, 1)] value
-        a_hat <- rep(sigma_est, times=n_rand)
-        c_star <- rnorm(sum(n_rand), mean=0, sd=1)
-        b_star <- a_hat * c_star
+        modmat <- cbind(obj_f_eff, Reduce(cbind, obj_r_eff))
+        # Check the random effects again - we need to drop any corresponding
+        # entries that are missing in the original data, lest we get a mismatch
+        # of dimension.
+        missing_res <- sapply(names(boot_reff), function(re) {
+            miss_rows <- which(is.na(boot_dat[[boot_reff[[re]]]]))
+            return(as.numeric(miss_rows))
+        })
+        # Keep track of which rows have missing random effects. Remove them
+        # the bootstrapped data if necessary
+        missing_res <- unique(Reduce(c, missing_res))
+        if(length(missing_res) > 0) {
+            boot_dat <- boot_dat[-missing_res,]
+        }
+        # Use the sigma values from the original random effects Aster model as
+        # a starting point for simulating new values
+        reff_start <- rep(sigma_est, times=n_rand)
+        # Make up new values for the random effects by multiplying by ~N(0, 1)
+        sim_factor <- rnorm(sum(n_rand), mean=0, sd=1)
+        b_star <- reff_start * sim_factor
+        # Then, overwrite the simulated random effects with the original
+        # estimates, but only for the random effects that are not being
+        # bootstrapped.
+        b_star[beff_idx] <- b_hat[beff_idx]
+        # Put the fixed and random effects together to apply to the bootstrap
+        # data
         eff_star <- c(alpha_est, b_star)
         # Transform the new effects to canonical parameter space so that they
         # can be used to generate new "data" from the Aster model distributions
@@ -100,7 +138,8 @@ bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
             boot_mod_obj$obj,
             to.cond="conditional",
             to.mean="canonical")
-        # Use raster() to generate new data from an Aster distribution
+        # Use raster() to generate new data from an Aster distribution with the
+        # new parameters and the existing graphical model
         y_star <- aster::raster(
             theta_star,
             boot_model_spec$pred,
@@ -110,23 +149,31 @@ bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
         # Use the blocking factors supplied to make a new model with the
         # proper blocking variables
         if(is.null(boot_blocking)) {
-            mod <- y_star ~ varb
+            mod <- resp ~ varb
         } else {
             block_string <- paste(boot_blocking, collapse="+")
-            mod_string <- paste("y_star~varb+fit:(", block_string, ")", sep="")
+            mod_string <- paste("resp~varb+fit:(", block_string, ")", sep="")
             mod <- as.formula(mod_string)
         }
-        # Fit a new model
+        # Fit a new model. Suppress warnings - the user would have seen any
+        # relevant warnings for the single-iteration model fitting
+        boot_dat$resp <- y_star
         rout_boot <- random_effects_aster(
-            boot_dat,
-            boot_model_spec,
-            reff=boot_reff,
-            effects=c(alpha_est, c_star),
-            sigma=sigma_est,
-            formula=mod)
-        # ADD HERE: call to function for VaW estimation
-        vaw <- vaw_function(rout_boot, "Pat", "Father", boot_model_spec,
-            1, 1)
+                boot_dat,
+                boot_model_spec,
+                r_eff=boot_reff,
+                formula=mod,
+                quiet=quiet)
+        # call to function for VaW estimation
+        vaw <- suppressWarnings(
+            vaw_function(
+                reaster_obj=rout_boot,
+                sire_label="Pat",
+                effect_label="Father",
+                model_spec=boot_model_spec,
+                fixed_eff_idx=boot_typical_fe_level,
+                typical_ind_idx=boot_typical_ind)
+            )
         return(vaw)
     }
     # Apply this bootstrapping function across multiple cores now
@@ -135,14 +182,23 @@ bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, reff, blocking,
         combine=rbind,
         .multicombine=TRUE,
         .inorder=FALSE) %dopar% {
-            devtools::load_all("~/Dropbox/GitHub/RIS/AsterBootstrap/")
-            single_boot(
-                boot_mod_obj=mod_obj,
-                boot_dat=long_dat,
-                boot_model_spec=model_spec,
-                boot_reff=reff,
-                boot_blocking=blocking,
-                vaw_function=VaW_fun)
+            set.seed(seed + i)
+            sb_est <- NULL
+            while(is.null(sb_est)) {
+                try(
+                    sb_est <- single_boot(
+                        boot_mod_obj=mod_obj,
+                        boot_dat=long_dat,
+                        boot_model_spec=model_spec,
+                        boot_reff=r_eff,
+                        boot_blocking=blocking,
+                        vaw_function=VaW_fun,
+                        boot_effect=boot_effect,
+                        boot_typical_ind=typical_ind,
+                        boot_typical_fe_level=typical_fe_level)
+                    )
+            }
+            return(sb_est)
         }
     return(boot_est)
 }

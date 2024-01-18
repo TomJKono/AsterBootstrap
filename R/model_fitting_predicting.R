@@ -60,7 +60,7 @@ fixed_effects_aster <- function(dat, model_spec, blocking=NULL, formula=NULL,
 
 
 #' Fit a random-effects Aster model to a dataset
-random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
+random_effects_aster <- function(dat, model_spec, r_eff=NULL, blocking=NULL,
     formula=NULL, effects=NULL, sigma=NULL, quiet=TRUE) {
     # If there are blocking factors specified, then coerce them to factor type
     if(!is.null(blocking)) {
@@ -79,9 +79,9 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
     # Check that both 'effects' and 'sigma' are either both defined (not NULL)
     # or are both NULL
     if(is.null(effects) & is.null(sigma)) {
-        def_sigma <- TRUE
+        sigma_defined <- FALSE
     } else {
-        def_sigma <- FALSE
+        sigma_defined <- TRUE
     }
     if((!is.null(effects) & is.null(sigma)) ||
         (is.null(effects) & !is.null(sigma))) {
@@ -92,16 +92,16 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
     # Check the random effects specification. If it is NULL (none specified),
     # then we will throw an error. Otherwise, it should be a list of random
     # effects to add.
-    if(is.null(reff) | !is.list(reff)) {
+    if(is.null(r_eff) | !is.list(r_eff)) {
         stop("Random effects must be specified as a list! See help page.",
              call.=TRUE)
     }
     # This is a bit ugly, but hopefully the list of random effects is not so
     # large that this for() loop becomes a problem
     rand_effs <- list()
-    for(re in names(reff)) {
+    for(re in names(r_eff)) {
         # Check that the random effect variable is a single character string.
-        if(!is.character(reff[[re]]) & length(reff[[re]]) != 1) {
+        if(!is.character(r_eff[[re]]) & length(r_eff[[re]]) != 1) {
             stop(
                 paste("Random effect '",
                       re,
@@ -111,7 +111,7 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
         }
         # Check that the random effects are part of the data to which the
         # model will be fit
-        if(!reff[[re]] %in% colnames(dat)) {
+        if(!r_eff[[re]] %in% colnames(dat)) {
             stop(paste(
                 "Random effect '",
                 re,
@@ -120,8 +120,8 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
             call.=TRUE)
         }
         # Remove data rows where the random effects columns have missing data
-        if(any(is.na(dat[[reff[[re]]]]))) {
-            miss_rows <- which(is.na(dat[[reff[[re]]]]))
+        if(any(is.na(dat[[r_eff[[re]]]]))) {
+            miss_rows <- which(is.na(dat[[r_eff[[re]]]]))
             warning(paste(
                 "Input data has missing values for random effect '",
                 re,
@@ -135,8 +135,8 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
             dat <- dat[-miss_rows,]
         }
         # Finally if we get here, then make the random effects formulae
-        revar <- reff[[re]]
-        re_f_string <- paste("~0+fit:", reff[[re]], sep="")
+        revar <- r_eff[[re]]
+        re_f_string <- paste("~0+fit:", r_eff[[re]], sep="")
         rand_effs[[re]] <- as.formula(re_f_string)
     }
 
@@ -176,7 +176,7 @@ random_effects_aster <- function(dat, model_spec, reff=NULL, blocking=NULL,
     #   the global environment because the reaster() function tries to access
     #   the data from the global environment.
     .GlobalEnv$reaster_input_data__ <- dat
-    if(def_sigma) {
+    if(!sigma_defined) {
         rout <- aster::reaster(
             fixed=mod,
             random=rand_effs,
@@ -215,7 +215,7 @@ VaW_paternal_halfsib <- function(reaster_obj, sire_label, effect_label,
     hoom.star <- predict(reaster_obj$obj,
                        newcoef=reaster_obj$alpha)
     hoom.star<- matrix(hoom.star, ncol=n_nodes)
-    hoom.star<- hoom.star[ , fit_node]
+    hoom.star<- hoom.star[,fit_node]
     # mapping function
     map <- function(b) {
         stopifnot(length(b) == 1)
@@ -223,19 +223,19 @@ VaW_paternal_halfsib <- function(reaster_obj, sire_label, effect_label,
         alpha <- reaster_obj$alpha
         alpha[fixed_eff_idx] <- alpha[fixed_eff_idx] + b 
         # adding random effect to fixed effect
-        hoom.star <- predict(reaster_obj$obj, newcoef = alpha)
-        hoom.star<- matrix(hoom.star, ncol = n_nodes)
+        hoom.star <- predict(reaster_obj$obj, newcoef=alpha)
+        hoom.star<- matrix(hoom.star, ncol=n_nodes)
         return(hoom.star[typical_ind_idx, fit_node]) # return value of final node for typical individual
     }
     map.vector <- Vectorize(map)
-    bhat.sire.mu<- map.vector(bhat.sire)  
+    bhat.sire.mu<- map.vector(bhat.sire)
     hoom.star2<- predict(reaster_obj$obj,
-                       newcoef = reaster_obj$alpha,
-                       se.fit=TRUE, info.tol = 1e-13)
-    goom.star <- hoom.star2$gradient  
+                       newcoef=reaster_obj$alpha,
+                       se.fit=TRUE, info.tol=1e-13)
+    goom.star <- hoom.star2$gradient
     moom.star<- goom.star[,fixed_eff_idx]
-    moom.star<- matrix(moom.star, ncol=n_nodes)  
-    # calcualtion for Va(w) 
+    moom.star<- matrix(moom.star, ncol=n_nodes)
+    # calcualtion for Va(w)
     boot_Va<- 4 * moom.star[typical_ind_idx , fit_node]^2 * reaster_obj$nu[1] # final calcuation of VaW
     soutstar <- summary(reaster_obj)
     boot_SE<- 4 * moom.star[typical_ind_idx , fit_node]^2 * soutstar$nu[effect_label, "Std. Error"]
