@@ -197,6 +197,8 @@ single_bootstrap_VaW_par <- function(mod_obj, long_dat, model_spec, r_eff,
                         boot_typical_ind=typical_ind,
                         boot_typical_fe_level=typical_fe_level)
                     )
+                rint <- runif(1, n_iter, n_iter+1e6)
+                set.seed(seed + rint)
             }
             return(sb_est)
         }
