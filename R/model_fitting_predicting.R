@@ -229,16 +229,18 @@ VaW_paternal_halfsib <- function(reaster_obj, sire_label, effect_label,
     }
     map.vector <- Vectorize(map)
     bhat.sire.mu<- map.vector(bhat.sire)
-    hoom.star2<- predict(reaster_obj$obj,
-                       newcoef=reaster_obj$alpha,
-                       se.fit=TRUE, info.tol=1e-13)
+    hoom.star2<- predict(
+        reaster_obj$obj,
+        newcoef=reaster_obj$alpha,
+        se.fit=TRUE,
+        info.tol=1e-13)
     goom.star <- hoom.star2$gradient
     moom.star<- goom.star[,fixed_eff_idx]
     moom.star<- matrix(moom.star, ncol=n_nodes)
     # calcualtion for Va(w)
-    boot_Va<- 4 * moom.star[typical_ind_idx , fit_node]^2 * reaster_obj$nu[1] # final calcuation of VaW
+    boot_Va<- 4 * moom.star[typical_ind_idx, fit_node]^2 * reaster_obj$nu[effect_label] # final calcuation of VaW
     soutstar <- summary(reaster_obj)
-    boot_SE<- 4 * moom.star[typical_ind_idx , fit_node]^2 * soutstar$nu[effect_label, "Std. Error"]
+    boot_SE<- 4 * moom.star[typical_ind_idx, fit_node]^2 * soutstar$nu[effect_label, "Std. Error"]
     vaandse <- c(boot_Va,boot_SE)
     return(vaandse)
     }
